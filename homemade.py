@@ -117,7 +117,7 @@ class MyBot(ExampleEngine):
     transposition table, and a richer evaluator to make it competitive.
     """
     def search(self, board: chess.Board, *args: HOMEMADE_ARGS_TYPE) -> PlayResult:
-        movetime_sec = 5
+        movetime_sec = 2
 
         engine.board.set_fen(board.fen())
 
