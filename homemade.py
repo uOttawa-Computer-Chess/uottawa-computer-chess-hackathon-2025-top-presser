@@ -9,6 +9,7 @@ import random
 from lib.engine_wrapper import MinimalEngine
 from lib.lichess_types import MOVE, HOMEMADE_ARGS_TYPE
 import logging
+from engine import Engine
 
 
 # Use this logger variable to print messages to the console or log files.
@@ -95,7 +96,7 @@ class ComboEngine(ExampleEngine):
             move = possible_moves[0]
         return PlayResult(move, None, draw_offered=draw_offered)
 
-    
+engine = Engine()
 class MyBot(ExampleEngine):
     """Template code for hackathon participants to modify.
 
@@ -115,117 +116,18 @@ class MyBot(ExampleEngine):
     iterative deepening, quiescence search, move ordering (MVV/LVA, history),
     transposition table, and a richer evaluator to make it competitive.
     """
-
     def search(self, board: chess.Board, *args: HOMEMADE_ARGS_TYPE) -> PlayResult:
-        # NOTE: The sections below are intentionally simple to keep the example short.
-        # They demonstrate the structure of a search but also highlight the engine's
-        # weaknesses (fixed depth, naive time handling, no pruning, no quiescence, etc.).
+        movetime_sec = 5
 
-        # --- very simple time-based depth selection (naive) ---
-        # Expect args to be (time_limit: Limit, ponder: bool, draw_offered: bool, root_moves: MOVE)
-        time_limit = args[0] if (args and isinstance(args[0], Limit)) else None
-        my_time = my_inc = None
-        if time_limit is not None:
-            if isinstance(time_limit.time, (int, float)):
-                my_time = time_limit.time
-                my_inc = 0
-            elif board.turn == chess.WHITE:
-                my_time = time_limit.white_clock if isinstance(time_limit.white_clock, (int, float)) else 0
-                my_inc = time_limit.white_inc if isinstance(time_limit.white_inc, (int, float)) else 0
-            else:
-                my_time = time_limit.black_clock if isinstance(time_limit.black_clock, (int, float)) else 0
-                my_inc = time_limit.black_inc if isinstance(time_limit.black_inc, (int, float)) else 0
+        engine.board.set_fen(board.fen())
 
-        # Map a rough time budget to a coarse fixed depth.
-        # Examples:
-        # - >= 60s: depth 4
-        # - >= 20s: depth 3
-        # - >= 5s:  depth 2
-        # - else:   depth 1
-        remaining = my_time if isinstance(my_time, (int, float)) else None
-        inc = my_inc if isinstance(my_inc, (int, float)) else 0
-        budget = (remaining or 0) + 2 * inc  # crude increment bonus
-        if remaining is None:
-            total_depth = 4
-        elif budget >= 60:
-            total_depth = 4
-        elif budget >= 20:
-            total_depth = 3
-        elif budget >= 5:
-            total_depth = 2
-        else:
-            total_depth = 1
-        total_depth = max(1, int(total_depth))
+        evaluation, move = engine.search_iterative(board.copy(), time_allocated=movetime_sec, max_depth=8)
 
-        # --- simple material evaluator (White-positive score) ---
-        def evaluate(b: chess.Board) -> int:
-            # Large score for terminal outcomes
-            if b.is_game_over():
-                outcome = b.outcome()
-                if outcome is None or outcome.winner is None:
-                    return 0  # draw
-                return 10_000_000 if outcome.winner is chess.WHITE else -10_000_000
+        if move is None:
+            legals = list(board.legal_moves)
+            if not legals:
+                return PlayResult(None, None)
+            move = random.choice(legals)
 
-            values = {
-                chess.PAWN: 100,
-                chess.KNIGHT: 320,
-                chess.BISHOP: 330,
-                chess.ROOK: 500,
-                chess.QUEEN: 900,
-                chess.KING: 0,  # king material ignored (checkmates handled above)
-            }
-            score = 0
-            for pt, v in values.items():
-                score += v * (len(b.pieces(pt, chess.WHITE)) - len(b.pieces(pt, chess.BLACK)))
-            return score
-
-        # --- plain minimax (no alpha-beta) ---
-        def minimax(b: chess.Board, depth: int, maximizing: bool) -> int:
-            if depth == 0 or b.is_game_over():
-                return evaluate(b)
-
-            if maximizing:
-                best = -10**12
-                for m in b.legal_moves:
-                    b.push(m)
-                    val = minimax(b, depth - 1, False)
-                    b.pop()
-                    if val > best:
-                        best = val
-                return best
-            else:
-                best = 10**12
-                for m in b.legal_moves:
-                    b.push(m)
-                    val = minimax(b, depth - 1, True)
-                    b.pop()
-                    if val < best:
-                        best = val
-                return best
-
-        # --- root move selection ---
-        legal = list(board.legal_moves)
-        if not legal:
-            # Should not happen during normal play; fall back defensively
-            return PlayResult(random.choice(list(board.legal_moves)), None)
-
-        maximizing = board.turn == chess.WHITE
-        best_move = None
-        best_eval = -10**12 if maximizing else 10**12
-
-        # Lookahead depth chosen by the simple time heuristic; subtract one for the root move
-        for m in legal:
-            board.push(m)
-            val = minimax(board, total_depth - 1, not maximizing)
-            board.pop()
-
-            if maximizing and val > best_eval:
-                best_eval, best_move = val, m
-            elif not maximizing and val < best_eval:
-                best_eval, best_move = val, m
-
-        # Fallback in rare cases (shouldn't trigger)
-        if best_move is None:
-            best_move = legal[0]
-
-        return PlayResult(best_move, None)
+        logger.debug(f"time={movetime_sec:.2f}s eval={evaluation} move={move}")
+        return PlayResult(move, None)
